@@ -19,4 +19,16 @@ public class ClockkerWifiScan {
         return new ClockkerWifiScan(scan.BSSID, scan.level);
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (o.getClass() != ClockkerWifiScan.class) return false;
+
+        ClockkerWifiScan wifiScan = (ClockkerWifiScan) o;
+
+        if (!BSSID.equals(wifiScan.BSSID)) return false;
+        if (RSSI != wifiScan.RSSI) return false;
+
+        return true;
+    }
+
 }

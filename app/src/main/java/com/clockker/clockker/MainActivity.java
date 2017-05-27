@@ -14,6 +14,7 @@ import android.net.wifi.WifiManager;
 import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -30,11 +31,17 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+
 public class MainActivity extends AppCompatActivity {
+
+    double MAX_DIST = 1e10;
+    double DISTANCE_LIMIT = 100;
 
     Button mButton;
     EditText mText;
     Button mResetButton;
+    Button mCheckInButton;
+    Button mCheckOutButton;
 
     WifiManager mainWifi;
     WifiReceiver receiverWifi;
@@ -60,6 +67,8 @@ public class MainActivity extends AppCompatActivity {
 
     List<ClockkerLocation> mLocations = new ArrayList<>();
 
+    ClockkerLocation checkedInLocation;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -68,6 +77,7 @@ public class MainActivity extends AppCompatActivity {
         mButton = (Button) findViewById(R.id.button);
         mText = (EditText) findViewById(R.id.editText);
         mResetButton = (Button) findViewById(R.id.button7);
+        mCheckInButton = (Button) findViewById(R.id.button4);
 
         if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION}, 0x12345);
@@ -111,10 +121,57 @@ public class MainActivity extends AppCompatActivity {
                 }
         );
 
+        mCheckInButton.setOnClickListener(
+                new View.OnClickListener()
+                {
+                    public void onClick(View view)
+                    {
+                        if (mLocations.size() == 0) {
+                            Toast.makeText(MainActivity.this, "Cant check in, no locations!", Toast.LENGTH_SHORT).show();
+                        }
+                        ClockkerLocation loc = new ClockkerLocation(mName, mWifiList, mLatitude, mLongitude);
+
+                        double minDist = MAX_DIST;
+                        int distIndex = -1;
+                        double maxRatio = -1;
+                        int ratioIndex = -1;
+
+                        for (int i = 0; i < mLocations.size(); i++) {
+                            double ratio = loc.baseStationRatio(mLocations.get(i));
+                            double dist = loc.distanceTo(mLocations.get(i));
+                            if (maxRatio < ratio) {
+                                maxRatio = ratio;
+                                ratioIndex = i;
+                            }
+                            if (minDist > dist) {
+                                minDist = dist;
+                                distIndex = i;
+                            }
+                        }
+                        Log.d("TESTI", "RatioIndex = " + ratioIndex + ", ratio = " + maxRatio + ", distIndex = " + distIndex + ", dist = " + minDist);
+                        if (minDist < DISTANCE_LIMIT) {
+                            checkedInLocation = mLocations.get(ratioIndex);
+                        } else {
+                            checkedInLocation = mLocations.get(distIndex);
+                        }
+                        ClockkerEvent event = new ClockkerEvent("check_in", System.currentTimeMillis() / 1000, checkedInLocation);
+
+                        try {
+                            writeEvent(event);
+                        } catch (IOException e) {
+                            Toast.makeText(MainActivity.this, "Failed to write event to file!", Toast.LENGTH_SHORT).show();
+                        } catch (JSONException e) {
+                            Toast.makeText(MainActivity.this, "Failed to parse event JSON!", Toast.LENGTH_SHORT).show();
+                        }
+                        
+                    }
+                }
+        );
+
         try {
             readLocations();
         } catch (IOException e) {
-            Toast.makeText(MainActivity.this, "Failed to write file!", Toast.LENGTH_SHORT).show();
+            Toast.makeText(MainActivity.this, "Failed to read file!", Toast.LENGTH_SHORT).show();
         } catch (JSONException e) {
             Toast.makeText(MainActivity.this, "Failed to parse JSON!", Toast.LENGTH_SHORT).show();
         } finally {
@@ -123,12 +180,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-    }
-
-    public void createLocation(String name, List<ScanResult> wifiList, double latitude, double longitude) {
-        mLocations.add(new ClockkerLocation(name, wifiList, latitude, longitude));
-
-        Toast.makeText(this, "Creating location!", Toast.LENGTH_SHORT).show();
     }
 
     public void getWifi() {
@@ -246,7 +297,7 @@ public class MainActivity extends AppCompatActivity {
     public void checkIfShouldCreateLocation() {
         if (mAddingLocation && mNumberOfLocations > 0 && mNumberOfWifis > 0) {
             mAddingLocation = false;
-            createLocation(mName, mWifiList, mLatitude, mLongitude);
+            mLocations.add(new ClockkerLocation(mName, mWifiList, mLatitude, mLongitude));
 
             try {
                 exportLocations();
@@ -254,8 +305,6 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(MainActivity.this, "Failed to write file!", Toast.LENGTH_SHORT).show();
             } catch (JSONException e) {
                 Toast.makeText(MainActivity.this, "Failed to parse JSON!", Toast.LENGTH_SHORT).show();
-            } finally {
-                Toast.makeText(MainActivity.this, "Wrote locations to file!", Toast.LENGTH_SHORT).show();
             }
 
         }
@@ -331,6 +380,24 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "Failed to reset locations!", Toast.LENGTH_SHORT).show();
         }
     }
+
+    public void writeEvent(ClockkerEvent event) throws IOException, JSONException {
+        String state = Environment.getExternalStorageState();
+        if (!Environment.MEDIA_MOUNTED.equals(state)) {
+            return;
+        }
+
+        File path = getExternalFilesDir(null);
+        File file = new File(path, "event_log.txt");
+
+        FileOutputStream stream = new FileOutputStream(file);
+        stream.write(event.toJSON().toString().getBytes());
+        stream.write(("\n").getBytes());
+
+        stream.close();
+    }
+
+
 
 
 }

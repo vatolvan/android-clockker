@@ -1,5 +1,6 @@
 package com.clockker.clockker;
 
+import android.location.Location;
 import android.net.wifi.ScanResult;
 
 import org.json.JSONArray;
@@ -74,6 +75,41 @@ public class ClockkerLocation {
         }
 
         return new ClockkerLocation(name, wifis, latitude, longitude);
+    }
+
+    public double baseStationRatio(ClockkerLocation location2) {
+        // Compute how many bssids we hear from the current location in this location
+
+        int heardBaseStations = 0;
+
+        for (ClockkerWifiScan scan : location2.mWifiScan) {
+            for (ClockkerWifiScan scan2 : this.mWifiScan) {
+                if (scan.equals(scan2)) {
+                    heardBaseStations++;
+                }
+            }
+        }
+        return (double)heardBaseStations / (double)mWifiScan.size();
+
+    }
+
+    public double distanceTo(ClockkerLocation location2) {
+        Location loc1 = new Location("Point A");
+        loc1.setLatitude(location2.mLatitude);
+        loc1.setLongitude(location2.mLongitude);
+
+        Location loc2 = new Location("Point B");
+        loc2.setLatitude(mLatitude);
+        loc2.setLongitude(mLongitude);
+
+        return loc1.distanceTo(loc2);
+    }
+
+    public Location getLocation() {
+        Location loc = new Location(mName);
+        loc.setLatitude(mLatitude);
+        loc.setLongitude(mLongitude);
+        return loc;
     }
 
 }
