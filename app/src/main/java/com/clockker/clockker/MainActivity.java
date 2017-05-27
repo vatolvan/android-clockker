@@ -11,6 +11,7 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiManager;
+import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.View;
@@ -19,12 +20,21 @@ import android.widget.EditText;
 import android.widget.Toast;
 import android.os.Handler;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
     Button mButton;
     EditText mText;
+    Button mResetButton;
 
     WifiManager mainWifi;
     WifiReceiver receiverWifi;
@@ -48,6 +58,8 @@ public class MainActivity extends AppCompatActivity {
 
     boolean mAddingLocation = false;
 
+    List<ClockkerLocation> mLocations = new ArrayList<>();
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -55,6 +67,7 @@ public class MainActivity extends AppCompatActivity {
 
         mButton = (Button) findViewById(R.id.button);
         mText = (EditText) findViewById(R.id.editText);
+        mResetButton = (Button) findViewById(R.id.button7);
 
         if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION}, 0x12345);
@@ -88,9 +101,33 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
 
+        mResetButton.setOnClickListener(
+                new View.OnClickListener()
+                {
+                    public void onClick(View view)
+                    {
+                        clearLocations();
+                    }
+                }
+        );
+
+        try {
+            readLocations();
+        } catch (IOException e) {
+            Toast.makeText(MainActivity.this, "Failed to write file!", Toast.LENGTH_SHORT).show();
+        } catch (JSONException e) {
+            Toast.makeText(MainActivity.this, "Failed to parse JSON!", Toast.LENGTH_SHORT).show();
+        } finally {
+            if (mLocations.size() > 0) {
+                Toast.makeText(MainActivity.this, "Read " + mLocations.size() + " locations from file!", Toast.LENGTH_SHORT).show();
+            }
+        }
+
     }
 
     public void createLocation(String name, List<ScanResult> wifiList, double latitude, double longitude) {
+        mLocations.add(new ClockkerLocation(name, wifiList, latitude, longitude));
+
         Toast.makeText(this, "Creating location!", Toast.LENGTH_SHORT).show();
     }
 
@@ -123,7 +160,7 @@ public class MainActivity extends AppCompatActivity {
         };
 
         LocationManager locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
-        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, mLocationListener);
+        locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 0, 0, mLocationListener);
     }
 
     @Override
@@ -210,6 +247,88 @@ public class MainActivity extends AppCompatActivity {
         if (mAddingLocation && mNumberOfLocations > 0 && mNumberOfWifis > 0) {
             mAddingLocation = false;
             createLocation(mName, mWifiList, mLatitude, mLongitude);
+
+            try {
+                exportLocations();
+            } catch (IOException e) {
+                Toast.makeText(MainActivity.this, "Failed to write file!", Toast.LENGTH_SHORT).show();
+            } catch (JSONException e) {
+                Toast.makeText(MainActivity.this, "Failed to parse JSON!", Toast.LENGTH_SHORT).show();
+            } finally {
+                Toast.makeText(MainActivity.this, "Wrote locations to file!", Toast.LENGTH_SHORT).show();
+            }
+
+        }
+    }
+
+    public void exportLocations() throws IOException, JSONException {
+        // Check if we can write to external storage
+        String state = Environment.getExternalStorageState();
+        if (!Environment.MEDIA_MOUNTED.equals(state)) {
+            return;
+        }
+
+        File path = getExternalFilesDir(null);
+        File file = new File(path, "list_of_locations.txt");
+
+        FileOutputStream stream = new FileOutputStream(file);
+        for (ClockkerLocation loc : mLocations) {
+            stream.write(loc.toJSON().toString().getBytes());
+            stream.write(("\n").getBytes());
+        }
+
+        stream.close();
+    }
+
+    public void readLocations() throws IOException, JSONException {
+        String state = Environment.getExternalStorageState();
+        if (!Environment.MEDIA_MOUNTED.equals(state)) {
+            return;
+        }
+
+        File path = getExternalFilesDir(null);
+        File file = new File(path, "list_of_locations.txt");
+
+        int length = (int) file.length();
+
+        byte[] bytes = new byte[length];
+
+        FileInputStream in = new FileInputStream(file);
+        try {
+            in.read(bytes);
+        } finally {
+            in.close();
+        }
+
+        String contents = new String(bytes);
+
+        String lines[] = contents.split("\\r?\\n");
+
+        mLocations = new ArrayList<>();
+
+        for (String line : lines) {
+            if (line.length() > 0) {
+                mLocations.add(ClockkerLocation.fromJSON(new JSONObject(line)));
+            }
+        }
+    }
+
+    public void clearLocations() {
+        String state = Environment.getExternalStorageState();
+        if (!Environment.MEDIA_MOUNTED.equals(state)) {
+            return;
+        }
+
+        File dir = getExternalFilesDir(null);
+        File file = new File(dir, "list_of_locations.txt");
+        boolean deleted = file.delete();
+        
+        mLocations = new ArrayList<>();
+        
+        if (deleted && mLocations.size() == 0) {
+            Toast.makeText(this, "Resetted locations!", Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(this, "Failed to reset locations!", Toast.LENGTH_SHORT).show();
         }
     }
 
