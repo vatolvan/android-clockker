@@ -1,4 +1,4 @@
-package com.clocker.clocker;
+package com.clockker.clockker;
 
 import org.junit.Test;
 

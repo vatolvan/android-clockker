@@ -1,4 +1,4 @@
-package com.clocker.clocker;
+package com.clockker.clockker;
 
 import android.Manifest;
 import android.content.BroadcastReceiver;
@@ -11,7 +11,6 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiManager;
-import android.os.Build;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.View;
@@ -20,7 +19,6 @@ import android.widget.EditText;
 import android.widget.Toast;
 import android.os.Handler;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
@@ -30,19 +28,25 @@ public class MainActivity extends AppCompatActivity {
 
     WifiManager mainWifi;
     WifiReceiver receiverWifi;
+    int mNumberOfWifis = 0;
 
     private final Handler handler = new Handler();
 
     StringBuilder sb = new StringBuilder();
 
-    boolean mAdding = false;
     String mName;
 
     LocationManager locationManager;
 
     double mLatitude;
     double mLongitude;
-    boolean mHasLocation = false;
+    int mNumberOfLocations = 0;
+
+    List<ScanResult> mWifiList;
+
+    LocationListener mLocationListener;
+
+    boolean mAddingLocation = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -52,24 +56,42 @@ public class MainActivity extends AppCompatActivity {
         mButton = (Button) findViewById(R.id.button);
         mText = (EditText) findViewById(R.id.editText);
 
+        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION}, 0x12345);
+        } else {
+            getWifi();
+            getLocation();
+        }
+
         mButton.setOnClickListener(
                 new View.OnClickListener()
                 {
                     public void onClick(View view)
                     {
-                        if (!mAdding) {
-                            mAdding = true;
+                        if (!mAddingLocation) {
                             mName = mText.getText().toString();
-                            if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                                requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION}, 0x12345);
-                            } else {
-                                getWifi();
-                                getLocation();
+
+                            mAddingLocation = true;
+                            sb = new StringBuilder();
+                            if (mNumberOfLocations > 0) {
+                                sb.append("LatLon = " + mLatitude + "," + mLongitude + ", ");
                             }
+                            if (mNumberOfWifis > 0) {
+                                for (ScanResult s : mWifiList) {
+                                    sb.append(s.BSSID + " : " + s.level + ",");
+                                }
+                            }
+                            Toast.makeText(MainActivity.this, mName + ", " + sb.toString(), Toast.LENGTH_LONG).show();
+
+                            checkIfShouldCreateLocation();
                         }
                     }
                 });
 
+    }
+
+    public void createLocation(String name, List<ScanResult> wifiList, double latitude, double longitude) {
+        Toast.makeText(this, "Creating location!", Toast.LENGTH_SHORT).show();
     }
 
     public void getWifi() {
@@ -85,24 +107,56 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void getLocation() {
-        LocationManager locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
-
-        LocationListener locationListener = new LocationListener() {
+        mLocationListener = new LocationListener() {
             public void onLocationChanged(Location location) {
                 // Called when a new location is found by the network location provider.
                 mLatitude = location.getLatitude();
                 mLongitude = location.getLongitude();
-                Toast.makeText(MainActivity.this, "Location = " + location.toString(), Toast.LENGTH_LONG).show();
+                mNumberOfLocations++;
+
+                checkIfShouldCreateLocation();
             }
 
             public void onStatusChanged(String provider, int status, Bundle extras) {}
-
             public void onProviderEnabled(String provider) {}
-
             public void onProviderDisabled(String provider) {}
         };
 
-        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, locationListener);
+        LocationManager locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
+        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, mLocationListener);
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        if (mLocationListener != null) {
+            locationManager.removeUpdates(mLocationListener);
+        }
+        if (receiverWifi != null) {
+            mainWifi = null;
+        }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION}, 0x12345);
+        } else {
+            getWifi();
+            getLocation();
+        }
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (mLocationListener != null) {
+            locationManager.removeUpdates(mLocationListener);
+        }
+        if (receiverWifi != null) {
+            mainWifi = null;
+        }
     }
 
 
@@ -145,14 +199,17 @@ public class MainActivity extends AppCompatActivity {
     {
         public void onReceive(Context c, Intent intent)
         {
-            sb = new StringBuilder();
-            List<ScanResult> wifiList;
-            wifiList = mainWifi.getScanResults();
-            for (ScanResult s : wifiList) {
-                sb.append(s.SSID + " : " + s.BSSID + ",");
-            }
-            //Toast.makeText(c, sb.toString(), Toast.LENGTH_SHORT).show();
+            mWifiList = mainWifi.getScanResults();
+            mNumberOfWifis++;
 
+            checkIfShouldCreateLocation();
+        }
+    }
+
+    public void checkIfShouldCreateLocation() {
+        if (mAddingLocation && mNumberOfLocations > 0 && mNumberOfWifis > 0) {
+            mAddingLocation = false;
+            createLocation(mName, mWifiList, mLatitude, mLongitude);
         }
     }
 
