@@ -30,5 +30,4 @@ public class ClockkerWifiScan {
 
         return true;
     }
-
 }
